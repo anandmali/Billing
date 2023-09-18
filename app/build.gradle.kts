@@ -70,4 +70,5 @@ dependencies {
     debugImplementation(libs.ui.test.manifest)
 
     implementation(libs.billing)
+    implementation(libs.livedata)
 }

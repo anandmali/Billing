@@ -1,6 +1,5 @@
 package com.anandmali.billing
 
-import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,29 +11,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import com.anandmali.billing.ui.theme.BillingTheme
-import com.android.billingclient.api.BillingClient
-import com.android.billingclient.api.BillingClientStateListener
-import com.android.billingclient.api.BillingFlowParams
-import com.android.billingclient.api.BillingResult
-import com.android.billingclient.api.ProductDetails
-import com.android.billingclient.api.PurchasesUpdatedListener
-import com.android.billingclient.api.QueryProductDetailsParams
-import com.google.firebase.crashlytics.buildtools.reloc.com.google.common.collect.ImmutableList
-
-// List of subscription product offerings
-private const val BASIC_SUB = "up_basic_sub"
-private const val PREMIUM_SUB = "up_premium_sub"
-
-private val LIST_OF_PRODUCTS = listOf(BASIC_SUB, PREMIUM_SUB)
-
 
 class MainActivity : ComponentActivity() {
+
+    private val _connectionState = MutableLiveData(false)
+    private val connectionState: LiveData<Boolean> = _connectionState
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+
+        // Initialize billing client wrapper
+        val wrapper = BillingClientWrapper(this)
+        wrapper.startConnection(_connectionState)
+
         setContent {
             BillingTheme {
                 // A surface container using the 'background' color from the theme
@@ -42,9 +39,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PurchaseButton(this@MainActivity)
-                    }
+                    MainScreen(this, wrapper, connectionState)
                 }
             }
         }
@@ -52,73 +47,37 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun PurchaseButton(mainActivity: MainActivity) {
-    val context = LocalContext.current
+private fun MainScreen(
+    activity: MainActivity,
+    wrapper: BillingClientWrapper,
+    billingConnectionState: LiveData<Boolean>
+) {
+
+    val isConnecting by billingConnectionState.observeAsState()
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (isConnecting == true) {
+            PurchaseButton(activity, wrapper)
+        } else {
+            ConnectingView()
+        }
+    }
+}
+
+@Composable
+fun ConnectingView() {
+    Text(text = "Connecting to Billing Client ...")
+}
+
+@Composable
+fun PurchaseButton(mainActivity: MainActivity, wrapper: BillingClientWrapper) {
     Button(onClick = {
-        purchaseProduct(context, mainActivity)
+        purchaseProduct(wrapper, mainActivity)
     }) {
         Text(text = "Purchase")
     }
 }
 
-fun purchaseProduct(context: Context, mainActivity: MainActivity) {
-    val purchasesUpdatedListener =
-        PurchasesUpdatedListener { billingResult, purchases ->
-            // To be implemented in a later section.
-        }
-
-    val billingClient = BillingClient.newBuilder(context)
-        .setListener(purchasesUpdatedListener)
-        .enablePendingPurchases()
-        .build()
-
-    billingClient.startConnection(object : BillingClientStateListener {
-        override fun onBillingSetupFinished(billingResult: BillingResult) {
-            if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                // The BillingClient is ready. You can query purchases here.
-            }
-        }
-
-        override fun onBillingServiceDisconnected() {
-            // Try to restart the connection on the next request to
-            // Google Play by calling the startConnection() method.
-        }
-    })
-
-    val queryProductDetailsParams =
-        QueryProductDetailsParams.newBuilder()
-            .setProductList(
-                ImmutableList.of(
-                    QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId("product_id_example")
-                        .setProductType(BillingClient.ProductType.INAPP)
-                        .build()
-                )
-            )
-            .build()
-
-    var prodList: MutableList<ProductDetails>? = null
-    billingClient.queryProductDetailsAsync(queryProductDetailsParams) { billingResult, productDetailsList ->
-        // check billingResult
-        // process returned productDetailsList
-        prodList = productDetailsList
-    }
-
-    val productDetailsParamsList = listOf(
-        BillingFlowParams.ProductDetailsParams.newBuilder()
-            // retrieve a value for "productDetails" by calling queryProductDetailsAsync()
-            .setProductDetails(prodList!![0])
-            // to get an offer token, call ProductDetails.subscriptionOfferDetails()
-            // for a list of offers that are available to the user
-            .setOfferToken("selectedOfferToken")
-            .build()
-    )
-
-    val billingFlowParams = BillingFlowParams.newBuilder()
-        .setProductDetailsParamsList(productDetailsParamsList)
-        .build()
-
-    // Launch the billing flow
-    val billingResult = billingClient.launchBillingFlow(mainActivity, billingFlowParams)
-
+fun purchaseProduct(wrapper: BillingClientWrapper, mainActivity: MainActivity) {
+    wrapper.queryProductDetailsParams(mainActivity)
 }
